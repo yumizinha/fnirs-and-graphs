@@ -9,8 +9,8 @@ Z = NULL
 
 for(j in 1:5){ #for da dupla
   #Leitura de Dados
-  prof = read.table(paste("Subj", j, "_P_oxyhb.txt", sep=""))
-  aluno = read.table(paste("Subj", j, "_oxyhb.txt", sep=""))
+  prof = read.table(paste("./Data/", "Subj", j, "_P_oxyhb.txt", sep=""))
+  aluno = read.table(paste("./Data/", "Subj", j, "_oxyhb.txt", sep=""))
   
   #GSR - pega os resíduos do sinal médio de cada canal dos professores e alunos
   GSR = rowMeans(prof)
@@ -40,7 +40,7 @@ for(j in 1:5){ #for da dupla
   
   #Bootstrap
   Zboot = NULL
-  NBOOT = 10000
+  NBOOT = 10
   for(boot in 1:NBOOT){
     aux = sample(nrow(prof)-1, 1)
     auxsign = sample(c(-1, 1), 1)
@@ -310,7 +310,7 @@ require(lmtest)
 require(xts)
 
 # molde de duas cabecas
-molde <- readPNG("molde_hypper.png")
+molde <- readPNG("./Figures/molde_hypper.png")
 
 
 # Calculando ajuste das coordenadas calculadas no eeg_positions
@@ -341,9 +341,9 @@ par(mfrow =c(1, 1))
 for(j in 2:5){ #for da dupla
   #Leitura de Dados
 
-
-  prof = read.table(paste("Subj", j, "_P_oxyhb.txt", sep=""))
-  aluno = read.table(paste("Subj", j, "_oxyhb.txt", sep=""))
+j=2
+  prof = read.table(paste("./Data/", "Subj", j, "_P_oxyhb.txt", sep=""))
+  aluno = read.table(paste("./Data/", "Subj", j, "_oxyhb.txt", sep=""))
   
   #GSR - pega os resíduos do sinal médio de cada canal dos professores e alunos
   GSR = rowMeans(prof)
@@ -402,7 +402,7 @@ for(j in 2:5){ #for da dupla
 # Ajustamos dois modelos para cada uma das "vias": prever série do professor em função
 # do aluno + prever professor só com lag da série do professor 
 # e prever o aluno em função do professor + prever aluno em função apenas do lag do aluno.
-# Com o resultado, pegaria a razão da variância dos resídios e inverteria, para ter uma matriz
+# Com o resultado, pegaria a razão da variância dos resíduos e inverteria, para ter uma matriz
 # de adjacência com os índices. Ainda, zeraria os casos em que o teste de Granger mostrariam
 # que o modelo não é significativo.
 # Resultado: Não deu certo para ajuste dos modelos.
@@ -472,5 +472,195 @@ for(j in 2:5){ #for da dupla
 }
 
 
+####################################################################################################
+# VERIFICACAO DE PARES TROCADOS. PROFESSORES COM OUTROS ALUNOS E PROFESSORES COM OUTROS PROFESSORES.#
+# ALUNOS COM ALUNOS
+####################################################################################################
 
+
+
+##### ANALISE DE Modularidade
+require(igraph)
+Z = NULL
+
+
+
+#### PROFESSOR COM CADA ALUNO, MESMO SEM INTERACAO COM ELES NO EXPERIMENTO
+for(j in 1:5){ #for da dupla
+  #Leitura de Dados
+  for (k in 1:5) {
+  prof = read.table(paste("./Data/", "Subj", j, "_P_oxyhb.txt", sep=""))
+  aluno = read.table(paste("./Data/", "Subj", k, "_oxyhb.txt", sep=""))
+  
+  m = min(nrow(prof), nrow(aluno))
+  prof = prof[1:m,]
+  aluno = aluno[1:m,]
+
+  
+  #GSR - pega os resíduos do sinal médio de cada canal dos professores e alunos
+  GSR = rowMeans(prof)
+  for(i in 1:ncol(prof)){prof[, i] = lm(prof[, i]~GSR)$resid}
+  
+  GSR = rowMeans(aluno)
+  for(i in 1:ncol(aluno)){aluno[, i ] = lm(aluno[, i]~GSR)$resid}
+  
+  
+  # Preprocessamento
+  # Matriz de conectividade funcional - encontra a correlação dos canais
+  # conexão entre cada canal
+  # matriz 36x36: correlação dos 18 canais de professor com 18 canais de alunos.
+  # todos os canais contra todos os canais e zerando corr<0.1
+  
+  CONNECT = cor(cbind(prof, aluno))   #,method="spearman")
+  #para imprimir cada matriz write.csv(CONNECT, 'MATRIZ5.csv')
+  
+  CONNECT[which(CONNECT < 0.15)] = 0
+  SUBJECT = c(rep(1, ncol(prof)), rep(2, ncol(aluno)))
+  
+  
+  #Analise de Grafos a partir da modularidade (zorig)
+  g = graph.adjacency(CONNECT, weighted=TRUE, mode="undirected", diag=FALSE)
+  Zorig = modularity(g, SUBJECT)
+  
+  
+  #Bootstrap
+  Zboot = NULL
+  NBOOT = 1000
+  for(boot in 1:NBOOT){
+    aux = sample(nrow(prof)-1, 1)
+    auxsign = sample(c(-1, 1), 1)
+    BOOTprof = prof[c((aux+1):nrow(prof), 1:aux),]*auxsign
+    
+    #Matriz de conectividade funcional
+    CONNECT = cor(cbind(BOOTprof, aluno))  #,method="spearman")
+    CONNECT[which(CONNECT < 0.15)] = 0
+    SUBJECT = c(rep(1, ncol(prof)), rep(2, ncol(aluno)))
+    g = graph.adjacency(CONNECT, weighted = TRUE, mode = "undirected", diag = FALSE)
+    Zboot = c(Zboot, modularity(g, SUBJECT))
+  }
+  pvalue = length(which(Zboot<=Zorig))/NBOOT
+  print(c(j,k, Zorig, pvalue))
+}
+}
+
+
+##### PROFESSOR COM OUTROS PROFESSORES
+
+#### PROFESSOR COM CADA PROFESSOR, MESMO SEM INTERACAO COM ELES NO EXPERIMENTO
+
+for(j in 1:5){ #for da dupla
+  #Leitura de Dados
+  for (k in 1:5) {
+    prof = read.table(paste("./Data/", "Subj", j, "_P_oxyhb.txt", sep=""))
+    prof2 = read.table(paste("./Data/", "Subj", k, "_P_oxyhb.txt", sep=""))
+    
+    m = min(nrow(prof), nrow(prof2))
+    prof = prof[1:m,]
+    prof2 = prof2[1:m,]
+    
+    
+    #GSR - pega os resíduos do sinal médio de cada canal dos professores e alunos
+    GSR = rowMeans(prof)
+    for(i in 1:ncol(prof)){prof[, i] = lm(prof[, i]~GSR)$resid}
+    
+    GSR = rowMeans(prof2)
+    for(i in 1:ncol(prof2)){prof2[, i ] = lm(prof2[, i]~GSR)$resid}
+    
+    
+    # Preprocessamento
+    # Matriz de conectividade funcional - encontra a correlação dos canais
+    # conexão entre cada canal
+    # matriz 36x36: correlação dos 18 canais de professor com 18 canais de alunos.
+    # todos os canais contra todos os canais e zerando corr<0.1
+    
+    CONNECT = cor(cbind(prof, prof2))   #,method="spearman")
+    #para imprimir cada matriz write.csv(CONNECT, 'MATRIZ5.csv')
+    
+    CONNECT[which(CONNECT < 0.15)] = 0
+    SUBJECT = c(rep(1, ncol(prof)), rep(2, ncol(prof2)))
+    
+    
+    #Analise de Grafos a partir da modularidade (zorig)
+    g = graph.adjacency(CONNECT, weighted=TRUE, mode="undirected", diag=FALSE)
+    Zorig = modularity(g, SUBJECT)
+    
+    
+    #Bootstrap
+    Zboot = NULL
+    NBOOT = 1000
+    for(boot in 1:NBOOT){
+      aux = sample(nrow(prof)-1, 1)
+      auxsign = sample(c(-1, 1), 1)
+      BOOTprof = prof[c((aux+1):nrow(prof), 1:aux),]*auxsign
+      
+      #Matriz de conectividade funcional
+      CONNECT = cor(cbind(BOOTprof, prof2))  #,method="spearman")
+      CONNECT[which(CONNECT < 0.15)] = 0
+      SUBJECT = c(rep(1, ncol(prof)), rep(2, ncol(prof2)))
+      g = graph.adjacency(CONNECT, weighted = TRUE, mode = "undirected", diag = FALSE)
+      Zboot = c(Zboot, modularity(g, SUBJECT))
+    }
+    pvalue = length(which(Zboot<=Zorig))/NBOOT
+    print(c(j,k, Zorig, pvalue))
+  }
+}
+
+
+##### ALUNO COM OUTROS ALUNOS
+for(j in 1:5){ #for da dupla
+  #Leitura de Dados
+  for (k in 1:5) {
+    aluno2 = read.table(paste("./Data/", "Subj", j, "_oxyhb.txt", sep=""))
+    aluno = read.table(paste("./Data/", "Subj", k, "_oxyhb.txt", sep=""))
+    
+    m = min(nrow(aluno2), nrow(aluno))
+    aluno2 = aluno2[1:m,]
+    aluno = aluno[1:m,]
+    
+    
+    #GSR - pega os resíduos do sinal médio de cada canal dos professores e alunos
+    GSR = rowMeans(aluno2)
+    for(i in 1:ncol(aluno2)){aluno2[, i] = lm(aluno2[, i]~GSR)$resid}
+    
+    GSR = rowMeans(aluno)
+    for(i in 1:ncol(aluno)){aluno[, i ] = lm(aluno[, i]~GSR)$resid}
+    
+    
+    # Preprocessamento
+    # Matriz de conectividade funcional - encontra a correlação dos canais
+    # conexão entre cada canal
+    # matriz 36x36: correlação dos 18 canais de professor com 18 canais de alunos.
+    # todos os canais contra todos os canais e zerando corr<0.1
+    
+    CONNECT = cor(cbind(aluno2, aluno))   #,method="spearman")
+    #para imprimir cada matriz write.csv(CONNECT, 'MATRIZ5.csv')
+    
+    CONNECT[which(CONNECT < 0.15)] = 0
+    SUBJECT = c(rep(1, ncol(aluno2)), rep(2, ncol(aluno)))
+    
+    
+    #Analise de Grafos a partir da modularidade (zorig)
+    g = graph.adjacency(CONNECT, weighted=TRUE, mode="undirected", diag=FALSE)
+    Zorig = modularity(g, SUBJECT)
+    
+    
+    #Bootstrap
+    Zboot = NULL
+    NBOOT = 1000
+    for(boot in 1:NBOOT){
+      aux = sample(nrow(aluno2)-1, 1)
+      auxsign = sample(c(-1, 1), 1)
+      BOOTprof = aluno2[c((aux+1):nrow(aluno2), 1:aux),]*auxsign
+      
+      #Matriz de conectividade funcional
+      CONNECT = cor(cbind(BOOTprof, aluno))  #,method="spearman")
+      CONNECT[which(CONNECT < 0.15)] = 0
+      SUBJECT = c(rep(1, ncol(aluno2)), rep(2, ncol(aluno)))
+      g = graph.adjacency(CONNECT, weighted = TRUE, mode = "undirected", diag = FALSE)
+      Zboot = c(Zboot, modularity(g, SUBJECT))
+    }
+    pvalue = length(which(Zboot<=Zorig))/NBOOT
+    print(c(j,k, Zorig, pvalue))
+  }
+}
 
